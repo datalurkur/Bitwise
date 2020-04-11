@@ -12,16 +12,19 @@ namespace Bitwise.Game
 
         public GameData Data { get; private set; }
 
+        private InterfaceManager interfaceManager;
         private GameState rootState;
 
         protected void Awake()
         {
             Instance = this;
             Data = new GameData();
+            interfaceManager = new InterfaceManager();
             rootState = new RootState();
             if (Console != null)
             {
-                Console.OnUserInputReceived += OnUserInputReceived;
+                Console.OnUserInputUpdated += OnUserInputUpdated;
+                Console.OnUserInputCommitted += OnUserInputReceived;
             }
         }
 
@@ -29,7 +32,8 @@ namespace Bitwise.Game
         {
             if (Console != null)
             {
-                Console.OnUserInputReceived -= OnUserInputReceived;
+                Console.OnUserInputUpdated -= OnUserInputUpdated;
+                Console.OnUserInputCommitted -= OnUserInputReceived;
             }
         }
 
@@ -42,8 +46,13 @@ namespace Bitwise.Game
 
         private void OnUserInputReceived(string input)
         {
-            Data.VisualConsoleHistory.AddText(Console.FormatUserInputString(input));
-            rootState.ProcessUserIntent(InterfaceManager.ParseTextIntent(input));
+            Data.VisualConsoleHistory.AddLine(Console.FormatUserInputString(input));
+            rootState.ProcessUserIntent(interfaceManager.ParseTextIntent(input));
+        }
+
+        private string OnUserInputUpdated(string input)
+        {
+            return interfaceManager.GetTextSuggestion(input);
         }
     }
 }

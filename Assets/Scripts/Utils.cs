@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 
 public static class Utils
@@ -16,6 +17,17 @@ public static class Utils
         for (int i = 0; i < times; ++i)
         {
             action();
+        }
+    }
+
+    public static void IterateAndRemove<T>(this List<T> list, Func<T, bool> action)
+    {
+        for (int i = 0; i < list.Count; ++i)
+        {
+            if (action(list[i]))
+            {
+                list.RemoveAt(i--);
+            }
         }
     }
 }

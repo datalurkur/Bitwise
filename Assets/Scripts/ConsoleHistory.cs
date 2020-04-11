@@ -1,91 +1,164 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
+using Bitwise.Interface;
 using UnityEngine;
 
 namespace Bitwise.Game
 {
+    public class TextBlock : IComparable<TextBlock>
+    {
+        public static TextBlock PlainText(string text) { return new TextBlock() { Content = text }; }
+        public static TextBlock ColoredText(string text, Color? bgColor) { return new TextBlock()
+        {
+            Content = text,
+            BackgroundColor = bgColor
+        }; }
+
+        public string Content;
+        public Color? BackgroundColor;
+
+        public int CompareTo(TextBlock other)
+        {
+            if (other == null) { return 1; }
+            if (Content == null && other.Content == null) { return 0; }
+            if (Content == null) { return -1; }
+            if (other.Content == null) { return 1; }
+            int strCmp = Content.CompareTo(other.Content);
+            if (strCmp != 0) { return strCmp; }
+            return (BackgroundColor == other.BackgroundColor) ? 0 : 1;
+        }
+    }
+
     public class ConsoleHistory
     {
         public delegate void EventComplete();
+        public delegate void TextBlockCompleted(bool newline);
 
-        public const float CharactersPerSecond = 10;
+        public const float DefaultCharactersPerSecond = 100;
+        public const float InstantaneousCharactersPerSecond = 1000000;
         public const int IndentationSize = 4;
 
-        private class ConsoleEvent
+        public class ConsoleEvent
         {
             private EventComplete callback;
+            public TextBlock Text
+            {
+                get => new TextBlock()
+                {
+                    Content = textBuffer,
+                    BackgroundColor = backgroundColor
+                };
+            }
 
-            public string Text { get; private set; }
             public bool NewlineWhenFinished { get; private set; }
             public float DelayWhenFinished { get; private set; }
             public float CharactersPerSecond { get; private set; }
 
-            private float textDuration;
-            private float progress;
-
-            public ConsoleEvent(string text, bool newlineWhenFinished, float delayWhenFinished, float cps, EventComplete onComplete = null)
+            private float textDuration
             {
-                Text = text;
+                get => (textContent?.Length ?? 0) / CharactersPerSecond;
+            }
+
+            private string textContent;
+            private readonly string textColor;
+            private readonly Color? backgroundColor;
+            private float progress;
+            private bool firstRender = true;
+            private string textBuffer;
+
+            public ConsoleEvent(string content, bool newlineWhenFinished = true, float delayWhenFinished = 0f, float? cps = DefaultCharactersPerSecond, string tColor = null, Color? bColor = null, EventComplete onEventComplete = null)
+            {
                 NewlineWhenFinished = newlineWhenFinished;
                 DelayWhenFinished = delayWhenFinished;
-                CharactersPerSecond = cps;
-                callback = onComplete;
+                CharactersPerSecond = cps ?? DefaultCharactersPerSecond;
 
-                textDuration = (Text?.Length ?? 0) / CharactersPerSecond;
+                textContent = content;
+                textColor = tColor;
+                backgroundColor = bColor;
+                callback = onEventComplete;
+
                 progress = 0f;
             }
 
-            public float Progress(float deltaTime, out string newText)
+            public void SetIndent(string indent)
+            {
+                if (textContent == null) { return; }
+                textContent = indent + textContent;
+            }
+
+            public float Progress(float deltaTime)
             {
                 int startIndex = Mathf.FloorToInt(progress * CharactersPerSecond);
                 progress += deltaTime;
 
-                if (Text == null || startIndex >= Text.Length)
+                if (firstRender && textColor != null)
                 {
-                    newText = "";
+                    textBuffer += $"<color=#{textColor}>";
                 }
-                else
+
+                firstRender = false;
+                int endIndex = 0;
+                if (Text != null && startIndex < textContent.Length)
                 {
-                    int endIndex = Math.Min(Text.Length, Mathf.FloorToInt(progress * CharactersPerSecond));
-                    newText = Text.Substring(startIndex, (endIndex - startIndex));
+                    endIndex = Math.Min(textContent.Length, Mathf.FloorToInt(progress * CharactersPerSecond));
+                    textBuffer += textContent.Substring(startIndex, (endIndex - startIndex));
                 }
 
                 float leftoverProgress = progress - (textDuration + DelayWhenFinished);
                 if (leftoverProgress >= 0f)
                 {
+                    if (textColor != null)
+                    {
+                        textBuffer += "</color>";
+                    }
                     callback?.Invoke();
                 }
                 return leftoverProgress;
             }
         }
 
-        public delegate void LineCompleted();
-
-        public LineCompleted OnLineCompleted;
-        public List<string> CompletedLines { get; private set; } = new List<string>();
-        public GameDataProperty<string> ActiveLine { get; private set; } = new GameDataProperty<string>("");
+        public TextBlockCompleted OnTextBlockCompleted;
+        public List<List<TextBlock>> CompletedLines { get; } = new List<List<TextBlock>>();
+        public readonly GameDataProperty<TextBlock> ActiveTextBlock = new GameDataProperty<TextBlock>(new TextBlock());
 
         private readonly Queue<ConsoleEvent> textQueue = new Queue<ConsoleEvent>();
 
         private readonly HashSet<object> indentationContexts = new HashSet<object>();
         private string indentation = "";
-        private bool lastTextWasNewline = true;
+        private bool wasLastEventNewline = true;
 
-        public void AddText(string text, bool newline = true, float delay = 0f, float? speed = null, EventComplete callback = null)
+        #region Convenience Functions
+
+        public void AddLine(string text)
         {
-            string fullText = (lastTextWasNewline ? (indentation + text) : text);
-            textQueue.Enqueue(new ConsoleEvent(fullText, newline, delay, speed ?? CharactersPerSecond, callback));
-            lastTextWasNewline = newline;
+            QueueConsoleEvent(new ConsoleEvent(text));
         }
 
-        public void AddTextWithDotDelay(string preText, string postText, int dots, float delayPerDot)
+        public void AppendText(string text)
         {
-            AddText(preText, false, delayPerDot);
-            dots.Times(() =>
+            QueueConsoleEvent(new ConsoleEvent(text, false));
+        }
+
+        #endregion
+
+        public void QueueConsoleEvents(IEnumerable<ConsoleEvent> events)
+        {
+            foreach (ConsoleEvent consoleEvent in events)
             {
-                AddText(".", false, delayPerDot);
-            });
-            AddText(postText);
+                QueueConsoleEvent(consoleEvent);
+            }
+        }
+
+        public void QueueConsoleEvent(ConsoleEvent evt)
+        {
+            if (wasLastEventNewline)
+            {
+                evt.SetIndent(indentation);
+            }
+
+            wasLastEventNewline = evt.NewlineWhenFinished;
+            textQueue.Enqueue(evt);
         }
 
         public object Indent()
@@ -106,24 +179,28 @@ namespace Bitwise.Game
 
         public void Update(float deltaTime)
         {
-            if (textQueue.Count > 0)
+            float delta = deltaTime;
+            while (delta > 0f && textQueue.Count > 0)
             {
                 ConsoleEvent evt = textQueue.Peek();
-                float delta = evt.Progress(deltaTime, out string newText);
-                ActiveLine.Value += newText;
+                delta = evt.Progress(delta);
+
+                ActiveTextBlock.Value = evt.Text;
                 if (delta > 0f)
                 {
                     textQueue.Dequeue();
+                    if (CompletedLines.Count == 0)
+                    {
+                        CompletedLines.Add(new List<TextBlock>());
+                    }
+
+                    CompletedLines.Last().Add(evt.Text);
+                    OnTextBlockCompleted?.Invoke(evt.NewlineWhenFinished);
+
+                    ActiveTextBlock.Value = null;
                     if (evt.NewlineWhenFinished)
                     {
-                        CompletedLines.Add(ActiveLine.Value);
-                        OnLineCompleted?.Invoke();
-                        ActiveLine.Value = "";
-                    }
-                    if (textQueue.Count > 0)
-                    {
-                        textQueue.Peek().Progress(delta, out string trailingText);
-                        ActiveLine.Value += trailingText;
+                        CompletedLines.Add(new List<TextBlock>());
                     }
                 }
             }

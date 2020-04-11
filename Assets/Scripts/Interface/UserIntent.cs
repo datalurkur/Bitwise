@@ -22,7 +22,7 @@ namespace Bitwise.Interface
             Confirm,
             Cancel,
             Unknown,
-            DebugRandom
+            Debug
         }
 
         public SourceType Source { get; private set; }

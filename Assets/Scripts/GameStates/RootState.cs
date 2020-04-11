@@ -23,18 +23,12 @@ namespace Bitwise.Game
             case UserIntent.IntentType.Query:
                 if (intent.Target == IntentTarget.Commands)
                 {
-                    gameData.VisualConsoleHistory.AddText("TODO: Insert command list here");
+                    gameData.VisualConsoleHistory.AddLine("TODO: Insert command list here");
                     return true;
                 }
                 break;
-            case UserIntent.IntentType.DebugRandom:
-                for (int i = 0; i < 100; ++i)
-                {
-                    gameData.VisualConsoleHistory.AddText(Utils.GenerateRandomAlphaNumericString(100), true, 0f, 1000f);
-                }
-                return true;
             case UserIntent.IntentType.Unknown:
-                gameData.VisualConsoleHistory.AddText($"Unknown command");
+                gameData.VisualConsoleHistory.AddLine($"Unknown command");
                 return true;
             }
 
@@ -61,7 +55,7 @@ namespace Bitwise.Game
 
         private void OnQuitConfirmed()
         {
-            gameData.VisualConsoleHistory.AddText("Powering down...", true, 0.5f, null, DoQuit);
+            gameData.VisualConsoleHistory.QueueConsoleEvent(new ConsoleHistory.ConsoleEvent("Powering down...", true, 0.5f, null, null, null, DoQuit));
         }
 
         private void DoQuit()

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Bitwise.Interface;
 using UnityEditor;
@@ -8,8 +9,30 @@ namespace Bitwise.Game
 {
     public abstract class GameState
     {
+        private class DelayedEvent
+        {
+            public Action Event { get; private set; }
+            public float Delay { get; private set; }
+
+            public DelayedEvent(Action evt, float delay)
+            {
+                Event = evt;
+                Delay = delay;
+            }
+
+            public bool Update(float deltaTime)
+            {
+                Delay -= deltaTime;
+                if (Delay > 0f) return false;
+                Event();
+                return true;
+            }
+        }
+
         private GameState subState = null;
         private GameState parent = null;
+
+        private readonly List<DelayedEvent> delayedEvents = new List<DelayedEvent>();
 
         public GameState ActiveState
         {
@@ -26,6 +49,7 @@ namespace Bitwise.Game
         public virtual void Update(float deltaTime)
         {
             subState?.Update(deltaTime);
+            delayedEvents.IterateAndRemove((delayedEvent) => delayedEvent.Update(deltaTime));
         }
 
         public void ProcessUserIntent(UserIntent intent)
@@ -36,6 +60,11 @@ namespace Bitwise.Game
             {
                 throw new NotImplementedException();
             }
+        }
+
+        protected void QueueDelayedEvent(Action evt, float delay)
+        {
+            delayedEvents.Add(new DelayedEvent(evt, delay));
         }
 
         protected void PushState(Type stateType)
@@ -99,7 +128,7 @@ namespace Bitwise.Game
 
         protected override void OnPush()
         {
-            gameData.VisualConsoleHistory.AddText(promptContent);
+            gameData.VisualConsoleHistory.AddLine(promptContent);
         }
 
         protected override bool ProcessUserIntent_Internal(UserIntent intent)
@@ -115,8 +144,8 @@ namespace Bitwise.Game
                     Finish();
                     break;
                 default:
-                    gameData.VisualConsoleHistory.AddText("Unable to parse response");
-                    gameData.VisualConsoleHistory.AddText(promptContent);
+                    gameData.VisualConsoleHistory.AddLine("Unable to parse response");
+                    gameData.VisualConsoleHistory.AddLine(promptContent);
                     break;
             }
 

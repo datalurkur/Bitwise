@@ -1,51 +1,87 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using Bitwise.Game;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Assertions.Comparers;
+using UnityEngine.Serialization;
 
 namespace Bitwise.Interface
 {
     public class VirtualConsoleDisplay : MonoBehaviour
     {
-        public delegate void UserInputReceived(string input);
+        private static ConsoleHistory History => GameManager.Instance.Data.VisualConsoleHistory;
+
+        public delegate string UserInputUpdated(string input);
+        public delegate void UserInputCommitted(string input);
         public delegate void PrintingFinished();
 
-        public UserInputReceived OnUserInputReceived;
+        public UserInputUpdated OnUserInputUpdated;
+        public UserInputCommitted OnUserInputCommitted;
         public PrintingFinished OnPrintingFinished;
 
-        public RectTransform VirtualConsoleLinePrefab;
+        public RectTransform VirtualConsoleComplexLinePrefab;
         public RectTransform LineLayoutGroup;
-        public TMP_Text UserInputField;
+        public VirtualConsoleComplexLine UserInputField;
 
-        private TMP_Text ActiveTextContainer => textContainers[textContainers.Count - 1];
-        private ConsoleHistory History => GameManager.Instance.Data.VisualConsoleHistory;
+        public RectTransform TabsContainer;
+        public VirtualConsoleTab TabPrefab;
+
+        private VirtualConsoleComplexLine ActiveTextContainer => textContainers.Count > 0 ? textContainers[textContainers.Count - 1] : null;
+        private List<TextBlock> activeTextBlocks = new List<TextBlock>() { null };
 
         private float previousLayoutGroupHeight = 0f;
-        private List<TMP_Text> textContainers = new List<TMP_Text>();
+        private readonly List<VirtualConsoleComplexLine> textContainers = new List<VirtualConsoleComplexLine>();
 
         private string promptText = ">";
         private string previousUserInputString = "";
         private string userInputString = "";
+        private string completionString = "";
 
-        public string FormatUserInputString(string str)
+        public string FormatUserInputString(string userInput)
         {
-            return $"{promptText} {str}";
+            return $"{promptText} {userInput}";
         }
+
+        public List<TextBlock> FormatUserInputStringWithCompletion(string userInput, string completion)
+        {
+            string cursorCharacter = completion.Length > 0 ? completion.Substring(0, 1) : " ";
+            string completionTrail = completion.Length > 1 ? completion.Substring(1) : "";
+            return new List<TextBlock>()
+            {
+                TextBlock.PlainText(FormatUserInputString(userInput)),
+                TextBlock.ColoredText($"<color=#000000>{cursorCharacter}</color>", Color.white),
+                TextBlock.PlainText(completionTrail)
+            };
+        }
+
+        /*
+        public float GetWidthOfString(string text)
+        {
+            return UserInputField.GetPreferredValues(text, Mathf.Infinity, Mathf.Infinity).x;
+        }
+        */
+
+        /*
+        public float GetMaxStringWidth()
+        {
+            return UserInputField.rectTransform.rect.width;
+        }
+        */
 
         protected void Start()
         {
-            UserInputField.text = FormatUserInputString("");
-            History.OnLineCompleted += BeginNewLine;
-            History.ActiveLine.OnPropertyChanged += OnActiveLineChanged;
+            UserInputField.SetContent(FormatUserInputStringWithCompletion("", ""));
+            History.OnTextBlockCompleted += BeginNewTextBlock;
+            History.ActiveTextBlock.OnPropertyChanged += OnActiveLineChanged;
         }
 
         protected void OnDestroy()
         {
-            History.OnLineCompleted -= BeginNewLine;
-            History.ActiveLine.OnPropertyChanged -= OnActiveLineChanged;
+            History.OnTextBlockCompleted -= BeginNewTextBlock;
+            History.ActiveTextBlock.OnPropertyChanged -= OnActiveLineChanged;
         }
 
         protected void Update()
@@ -74,7 +110,7 @@ namespace Bitwise.Interface
                         break;
                     case '\n':
                     case '\r':
-                        OnUserInputReceived?.Invoke(userInputString);
+                        OnUserInputCommitted?.Invoke(userInputString + completionString);
                         userInputString = "";
                         break;
                     default:
@@ -84,23 +120,38 @@ namespace Bitwise.Interface
             }
             if (!string.Equals(userInputString, previousUserInputString))
             {
-                UserInputField.text = FormatUserInputString(userInputString);
+                string suggestedUserInput = OnUserInputUpdated?.Invoke(userInputString);
+                if (!string.IsNullOrEmpty(suggestedUserInput))
+                {
+                    completionString = suggestedUserInput.Substring(userInputString.Length);
+                }
+                else
+                {
+                    completionString = "";
+                }
+
+                UserInputField.SetContent(FormatUserInputStringWithCompletion(userInputString, completionString));
                 previousUserInputString = userInputString;
             }
         }
 
-        private void BeginNewLine()
+        private void BeginNewTextBlock(bool newline)
         {
-            TMP_Text line = textContainers[0];
-            textContainers.RemoveAt(0);
-            textContainers.Add(line);
-            line.rectTransform.SetAsLastSibling();
+            if (newline)
+            {
+                VirtualConsoleComplexLine line = textContainers[0];
+                textContainers.RemoveAt(0);
+                textContainers.Add(line);
+                line.UITransform.SetAsLastSibling();
+                activeTextBlocks.Clear();
+            }
+            activeTextBlocks.Add(null);
         }
 
         private void RepopulateLayoutGroup()
         {
             int prevNumLines = textContainers.Count;
-            int numLines = Mathf.FloorToInt(LineLayoutGroup.rect.height / VirtualConsoleLinePrefab.rect.height);
+            int numLines = Mathf.Max(0, Mathf.FloorToInt(LineLayoutGroup.rect.height / VirtualConsoleComplexLinePrefab.rect.height));
             int deltaLines = numLines - prevNumLines;
             if (deltaLines < 0)
             {
@@ -114,17 +165,17 @@ namespace Bitwise.Interface
             {
                 for (int i = 0; i < deltaLines; ++i)
                 {
-                    RectTransform newLine = Instantiate(VirtualConsoleLinePrefab, LineLayoutGroup);
-                    TMP_Text tContainer = newLine.GetComponent<TMP_Text>();
+                    RectTransform newLine = Instantiate(VirtualConsoleComplexLinePrefab, LineLayoutGroup);
+                    VirtualConsoleComplexLine tContainer = newLine.GetComponent<VirtualConsoleComplexLine>();
 
                     int historyLineIndex = History.CompletedLines.Count - numLines + i;
                     if (historyLineIndex >= 0 && historyLineIndex < History.CompletedLines.Count)
                     {
-                        tContainer.text = History.CompletedLines[historyLineIndex];
+                        tContainer.SetContent(History.CompletedLines[historyLineIndex]);
                     }
                     else
                     {
-                        tContainer.text = "";
+                        tContainer.SetContent(new List<TextBlock>());
                     }
                     newLine.SetAsFirstSibling();
                     textContainers.Insert(0, tContainer);
@@ -134,7 +185,9 @@ namespace Bitwise.Interface
 
         private void OnActiveLineChanged(GameDataProperty property)
         {
-            ActiveTextContainer.text = property.GetValue<string>();
+            activeTextBlocks[activeTextBlocks.Count - 1] = property.GetValue<TextBlock>();
+            if (ActiveTextContainer == null) { return; }
+            ActiveTextContainer.SetContent(activeTextBlocks);
         }
     }
 }
