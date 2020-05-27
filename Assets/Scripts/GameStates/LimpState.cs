@@ -9,14 +9,30 @@ namespace Bitwise.Game
 {
     public class LimpState : GameState
     {
-        public LimpState(GameState parent) : base(parent) { }
-
-        protected override bool ProcessUserIntent_Internal(UserIntent intent)
+        public override List<string> SupportedCommands { get; } = new List<string>()
         {
+            "diag",
+            "reboot"
+        };
+
+        public LimpState() { }
+
+        public override bool ProcessUserIntent(UserIntent intent)
+        {
+            if (base.ProcessUserIntent(intent)) { return true; }
+
             switch (intent.Intent)
             {
-                case UserIntent.IntentType.Debug:
+                case UserIntent.IntentType.Diag:
+                    PushState(typeof(RunDiagnosticState));
                     return true;
+                case UserIntent.IntentType.Reboot:
+                    if (!gameData.ObjectiveComplete(GameData.FullyBooted))
+                    {
+                        gameData.VisualConsoleHistory.AddLine("System unstable, reboot will likely corrupt essential processes.");
+                        return true;
+                    }
+                    break;
             }
 
             return false;
@@ -24,61 +40,41 @@ namespace Bitwise.Game
 
         protected override void OnPush()
         {
-            gameData.GetObjective(GameData.FullyBooted).Complete.OnPropertyChanged += PropertyChanged;
+            base.OnPush();
 
-            QueueDelayedEvent(() =>
+            if (gameData.ObjectiveComplete(GameData.FullyBooted))
             {
-                gameData.VisualConsoleHistory.AddLine("SepiaSoft OS v1.5.1s");
-                int cpuCores = gameData.GetPropertyValue<int>(GameData.CpuCores);
-                string cpuStatus = $"{cpuCores} core{(cpuCores > 1 ? "s" : "")} at {gameData.GetPropertyValue<int>(GameData.CpuSpeed)} MHz ";
-                string ramStatus = $"{gameData.GetPropertyValue<int>(GameData.MemoryCapacity)} MB at {gameData.GetPropertyValue<int>(GameData.MemorySpeed)} MHz ";
-                string psuStatus = $"{gameData.GetPropertyValue<int>(GameData.Power)} W ";
-                string hddStatus = $"{gameData.GetPropertyValue<int>(GameData.DiskCapacity)} GB at {gameData.GetPropertyValue<int>(GameData.DiskSpeed)} MHz ";
-                float basicCheckSpeed = 0f;
-                float secondaryCheckSpeed = 0f;
-                /*
-                PrintStatusCheck("CPU Check", cpuStatus, "OK", "00FF00", basicCheckSpeed);
-                PrintStatusCheck("RAM Check", ramStatus, "OK", "00FF00", basicCheckSpeed);
-                PrintStatusCheck("PSU Check", psuStatus, "UNSTABLE", "DDDD33", basicCheckSpeed);
-                PrintStatusCheck("HDD Check", hddStatus, "OK", "00FF00", basicCheckSpeed);
-                gameData.VisualConsoleHistory.AddLine("Checking disk partitions");
-                */
-                object indentContext = gameData.VisualConsoleHistory.Indent();
-                /*
-                PrintStatusCheck("Partition Map", "", "OK", "00FF00", secondaryCheckSpeed);
-                PrintStatusCheck("File Index", "", "OK", "00FF00", secondaryCheckSpeed);
-                PrintStatusCheck("Command Database", "", "CORRUPT", "FF0000", secondaryCheckSpeed);
-                PrintStatusCheck("User Credentials", "", "CORRUPT", "FF0000", secondaryCheckSpeed);
-                PrintStatusCheck("User Data", "", "CORRUPT", "FF0000", secondaryCheckSpeed);
-                PrintStatusCheck("Recovery Partition", "", "CORRUPT", "FF0000", secondaryCheckSpeed);
-                */
-                gameData.VisualConsoleHistory.Unindent(indentContext);
-                gameData.VisualConsoleHistory.QueueConsoleEvents(BuildStatusBlock("ERROR", "FF0000"));
-                gameData.VisualConsoleHistory.AddLine(" Irrecoverable data loss, booting in limp mode");
-            }, 1f);
-        }
-
-        private List<ConsoleHistory.ConsoleEvent> BuildStatusBlock(string status, string color)
-        {
-            return new List<ConsoleHistory.ConsoleEvent>()
-            {
-                new ConsoleHistory.ConsoleEvent("[", false),
-                new ConsoleHistory.ConsoleEvent(status, false, 0f, null, color),
-                new ConsoleHistory.ConsoleEvent("]", false)
-            };
-        }
-
-        protected override void OnPop()
-        {
-            gameData.GetObjective(GameData.FullyBooted).Complete.OnPropertyChanged -= PropertyChanged;
-        }
-
-        private void PropertyChanged(GameDataProperty property)
-        {
-            if (property.GetValue<bool>())
-            {
-                Finish();
+                Done = true;
+                return;
             }
+
+            gameData.VisualConsoleHistory.AddLine("SepiaSoft OS v1.5.1s");
+            int cpuCores = gameData.GetPropertyValue<int>(GameData.CpuCores);
+            string cpuStatus = $"{cpuCores} core{(cpuCores > 1 ? "s" : "")} at {gameData.GetPropertyValue<float>(GameData.CpuSpeed)} MHz{Utils.NonBreakingSpace}";
+            string ramStatus = $"{gameData.GetPropertyValue<float>(GameData.MemoryCapacity)} MB at {gameData.GetPropertyValue<float>(GameData.MemorySpeed)} MHz{Utils.NonBreakingSpace}";
+            string psuStatus = $"{gameData.GetPropertyValue<float>(GameData.Power)} W{Utils.NonBreakingSpace}";
+            string hddStatus = $"{gameData.GetPropertyValue<float>(GameData.DiskCapacity)} GB at {gameData.GetPropertyValue<float>(GameData.DiskSpeed)} MHz{Utils.NonBreakingSpace}";
+            gameData.VisualConsoleHistory.QueueConsoleEvents(Utils.BuildStatusCheck("CPU Check", cpuStatus, "OK", "00FF00", InterfaceManager.NormalDelayTime));
+            gameData.VisualConsoleHistory.QueueConsoleEvents(Utils.BuildStatusCheck("RAM Check", ramStatus, "OK", "00FF00", InterfaceManager.NormalDelayTime));
+            gameData.VisualConsoleHistory.QueueConsoleEvents(Utils.BuildStatusCheck("PSU Check", psuStatus, "UNSTABLE", "DDDD33", InterfaceManager.NormalDelayTime));
+            gameData.VisualConsoleHistory.QueueConsoleEvents(Utils.BuildStatusCheck("HDD Check", hddStatus, "OK", "00FF00", InterfaceManager.NormalDelayTime));
+            gameData.VisualConsoleHistory.AddLine("Checking disk partitions");
+            object indentContext = gameData.VisualConsoleHistory.Indent();
+            gameData.VisualConsoleHistory.QueueConsoleEvents(Utils.BuildStatusCheck("Partition Map", "", "OK", "00FF00", InterfaceManager.ShortDelayTime));
+            gameData.VisualConsoleHistory.QueueConsoleEvents(Utils.BuildStatusCheck("File Index", "", "OK", "00FF00", InterfaceManager.ShortDelayTime));
+            gameData.VisualConsoleHistory.QueueConsoleEvents(Utils.BuildStatusCheck("Command Database", "", "CORRUPT", "FF0000", InterfaceManager.ShortDelayTime));
+            gameData.VisualConsoleHistory.QueueConsoleEvents(Utils.BuildStatusCheck("User Credentials", "", "CORRUPT", "FF0000", InterfaceManager.ShortDelayTime));
+            gameData.VisualConsoleHistory.QueueConsoleEvents(Utils.BuildStatusCheck("User Data", "", "CORRUPT", "FF0000", InterfaceManager.ShortDelayTime));
+            gameData.VisualConsoleHistory.QueueConsoleEvents(Utils.BuildStatusCheck("Recovery Partition", "", "CORRUPT", "FF0000", InterfaceManager.ShortDelayTime));
+            gameData.VisualConsoleHistory.Unindent(indentContext);
+            gameData.VisualConsoleHistory.QueueConsoleEvents(Utils.BuildStatusBlock("ERROR", "FF0000"));
+            gameData.VisualConsoleHistory.AddLine(" Irrecoverable data loss, booting in limp mode");
+        }
+
+        protected override Type OnPop()
+        {
+            base.OnPop();
+            return gameData.ObjectiveComplete(GameData.FullyBooted) ? typeof(FullyBootedState) : null;
         }
     }
 }

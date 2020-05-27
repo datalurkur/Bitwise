@@ -22,7 +22,9 @@ namespace Bitwise.Interface
             Confirm,
             Cancel,
             Unknown,
-            Debug
+            Debug,
+            Diag,
+            Reboot
         }
 
         public SourceType Source { get; private set; }

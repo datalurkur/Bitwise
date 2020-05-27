@@ -1,31 +1,43 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using Bitwise.Game;
 using UnityEngine;
 
 namespace Bitwise.Interface
 {
     public class InterfaceManager
     {
+        public const float TimeDilator = 1f;
+
+        public const float ShortDelayTime = 0.25f;
+        public const float NormalDelayTime = 0.5f;
+        public const float LongDelayTime = 1f;
+
         private readonly Dictionary<string, TextIntent> textIntentCache = new Dictionary<string, TextIntent>();
         private readonly TextIntent unknownTextIntent = new TextIntent(UserIntent.IntentType.Unknown);
 
         public InterfaceManager()
         {
-            textIntentCache["help"] = new TextIntent(UserIntent.IntentType.Query, IntentTarget.Commands);
-            textIntentCache["quit"] = new TextIntent(UserIntent.IntentType.Quit);
-            textIntentCache["yes"] = new TextIntent(UserIntent.IntentType.Confirm);
-            textIntentCache["no"] = new TextIntent(UserIntent.IntentType.Cancel);
-            textIntentCache["debug"] = new TextIntent(UserIntent.IntentType.Debug);
+            AddIntentCommand("help", UserIntent.IntentType.Query, IntentTarget.Commands);
+            AddIntentCommand("quit", UserIntent.IntentType.Quit);
+            AddIntentCommand("yes", UserIntent.IntentType.Confirm);
+            AddIntentCommand("no", UserIntent.IntentType.Cancel);
+            AddIntentCommand("debug", UserIntent.IntentType.Debug);
+            AddIntentCommand("diag", UserIntent.IntentType.Diag);
+            AddIntentCommand("reboot", UserIntent.IntentType.Reboot);
         }
 
-        public string GetTextSuggestion(string text)
+        public string GetTextSuggestion(string text, GameState state)
         {
             if (string.IsNullOrEmpty(text)) { return null; }
             string userInput = text.Trim().ToLower();
             int firstWhitespace = userInput.IndexOf(' ');
             string command = (firstWhitespace == -1) ? userInput : userInput.Substring(0, firstWhitespace);
-            return textIntentCache.Keys.FirstOrDefault(key => key.StartsWith(command));
+
+            List<string> supportedCommands = new List<string>();
+            state.GetSupportedCommands(ref supportedCommands);
+            return textIntentCache.FirstOrDefault(pair => pair.Key.StartsWith(command) && (supportedCommands?.Contains(pair.Key) ?? true)).Key;
         }
 
         public TextIntent ParseTextIntent(string text)
@@ -38,6 +50,12 @@ namespace Bitwise.Interface
                 return intent;
             }
             return unknownTextIntent;
+        }
+
+        private void AddIntentCommand(string command, UserIntent.IntentType intent, IntentTarget target = IntentTarget.None)
+        {
+            TextIntent textIntent = new TextIntent(intent, target);
+            textIntentCache[command] = textIntent;
         }
     }
 }

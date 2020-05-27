@@ -16,7 +16,8 @@ namespace Bitwise.Interface
 
         public void SetContent(List<TextBlock> texts)
         {
-            for (var i = 0; i < texts.Count; ++i)
+            int numTexts = texts?.Count ?? 0;
+            for (var i = 0; i < numTexts; ++i)
             {
                 if (texts[i] == null)
                 {
@@ -41,7 +42,7 @@ namespace Bitwise.Interface
                 }
             }
 
-            for (var i = segments.Count - 1; i >= texts.Count; --i)
+            for (var i = segments.Count - 1; i >= numTexts; --i)
             {
                 Destroy(segments[i].gameObject);
                 segments.RemoveAt(i);

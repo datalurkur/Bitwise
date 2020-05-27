@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using Bitwise.Interface;
 using UnityEngine;
 
@@ -10,7 +11,10 @@ namespace Bitwise.Game
 
         public VirtualConsoleDisplay Console;
 
+        public string DataBlobName = "default";
+
         public GameData Data { get; private set; }
+        public Processing Processor { get; private set; }
 
         private InterfaceManager interfaceManager;
         private GameState rootState;
@@ -18,7 +22,8 @@ namespace Bitwise.Game
         protected void Awake()
         {
             Instance = this;
-            Data = new GameData();
+            Data = GameData.Load(Path.Combine(GameData.GetGameDataPath(), DataBlobName));
+            Processor = new Processing(Data);
             interfaceManager = new InterfaceManager();
             rootState = new RootState();
             if (Console != null)
@@ -42,6 +47,7 @@ namespace Bitwise.Game
             float deltaTime = Time.deltaTime;
             Data.VisualConsoleHistory.Update(deltaTime);
             rootState.Update(deltaTime);
+            Processor.Update(deltaTime);
         }
 
         private void OnUserInputReceived(string input)
@@ -52,7 +58,7 @@ namespace Bitwise.Game
 
         private string OnUserInputUpdated(string input)
         {
-            return interfaceManager.GetTextSuggestion(input);
+            return interfaceManager.GetTextSuggestion(input, rootState.ActiveState);
         }
     }
 }

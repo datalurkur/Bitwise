@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using Bitwise.Interface;
 using UnityEditor;
@@ -8,25 +9,37 @@ namespace Bitwise.Game
 {
     public class RootState : GameState
     {
-        public RootState()
+        public override List<string> SupportedCommands { get; } = new List<string>()
         {
-            UpdateActiveSubState();
-        }
+            "help",
+            "quit",
+            "reboot"
+        };
 
-        protected override bool ProcessUserIntent_Internal(UserIntent intent)
+        public RootState() { QueueDelayedEvent(Reboot, 1f); }
+
+        public override bool ProcessUserIntent(UserIntent intent)
         {
+            if (base.ProcessUserIntent(intent)) { return true; }
+
             switch (intent.Intent)
             {
             case UserIntent.IntentType.Quit:
-                PushState(new ConfirmState(this, "Are you sure you want to quit? (Y/N)", OnQuitConfirmed, null));
+                PushState(new ConfirmState( "Are you sure you want to quit? (yes/no)", OnQuitConfirmed, null));
                 return true;
             case UserIntent.IntentType.Query:
                 if (intent.Target == IntentTarget.Commands)
                 {
-                    gameData.VisualConsoleHistory.AddLine("TODO: Insert command list here");
+                    gameData.VisualConsoleHistory.AddLine("Known Commands:");
+                    object idContext = gameData.VisualConsoleHistory.Indent();
+                    ActiveState.SupportedCommands.ForEach(command => gameData.VisualConsoleHistory.AddLine(command));
+                    gameData.VisualConsoleHistory.Unindent(idContext);
                     return true;
                 }
                 break;
+            case UserIntent.IntentType.Reboot:
+                PushState(new ConfirmState( "System will restart, confirm (yes/no)", Reboot, null));
+                return true;
             case UserIntent.IntentType.Unknown:
                 gameData.VisualConsoleHistory.AddLine($"Unknown command");
                 return true;
@@ -35,22 +48,9 @@ namespace Bitwise.Game
             return false;
         }
 
-        protected override void OnChildFinished()
+        private void Reboot()
         {
-            base.OnChildFinished();
-            UpdateActiveSubState();
-        }
-
-        private void UpdateActiveSubState()
-        {
-            if (gameData.GetObjective(GameData.FullyBooted).Complete.Value)
-            {
-                throw new NotImplementedException();
-            }
-            else
-            {
-                PushState(typeof(LimpState));
-            }
+            PushState(typeof(LimpState));
         }
 
         private void OnQuitConfirmed()
@@ -58,7 +58,7 @@ namespace Bitwise.Game
             gameData.VisualConsoleHistory.QueueConsoleEvent(new ConsoleHistory.ConsoleEvent("Powering down...", true, 0.5f, null, null, null, DoQuit));
         }
 
-        private void DoQuit()
+        protected void DoQuit()
         {
             if (Application.isEditor)
             {

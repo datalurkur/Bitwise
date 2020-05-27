@@ -1,18 +1,30 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.UIElements.Experimental;
 
 namespace Bitwise.Game
 {
+    [Serializable]
     public abstract class GameDataProperty
     {
         public delegate void PropertyChanged(GameDataProperty property);
 
-        public PropertyChanged OnPropertyChanged;
+        protected PropertyChanged onPropertyChanged;
 
         public int Index { get; protected set; }
 
+        public string Name;
+
         public abstract Type PropertyType { get; }
+
+        public void Subscribe(PropertyChanged callback)
+        {
+            onPropertyChanged += callback;
+            callback?.Invoke(this);
+        }
+        public void Unsubscribe(PropertyChanged callback) { onPropertyChanged -= callback; }
 
         public T GetValue<T>() where T : IComparable<T>
         {
@@ -25,13 +37,17 @@ namespace Bitwise.Game
         }
     }
 
+    [Serializable]
     public class GameDataProperty<T> : GameDataProperty where T : IComparable<T>
     {
+        public static implicit operator T(GameDataProperty<T> prop) => prop.Value;
+
         public override Type PropertyType
         {
             get => typeof(T);
         }
 
+        [SerializeField]
         private T _value;
 
         public T Value
@@ -45,32 +61,38 @@ namespace Bitwise.Game
                 }
 
                 _value = value;
-                OnPropertyChanged?.Invoke(this);
+                onPropertyChanged?.Invoke(this);
             }
         }
 
         public GameDataProperty(T defaultValue)
         {
             Index = GameData.InvalidPropertyIndex;
+            Name = "UNNAMED";
             Value = defaultValue;
-            OnPropertyChanged = null;
+            onPropertyChanged = null;
         }
 
-        public GameDataProperty(int index, T defaultValue)
+        public GameDataProperty(int index, string name, T defaultValue)
         {
             Index = index;
+            Name = name;
             Value = defaultValue;
-            OnPropertyChanged = null;
+            onPropertyChanged = null;
         }
     }
 
+    [Serializable]
     public class GameDataListProperty<T> : GameDataProperty where T : IComparable<T>
     {
+        public static implicit operator List<T>(GameDataListProperty<T> prop) => prop.Value;
+
         public override Type PropertyType
         {
             get => typeof(T);
         }
 
+        [SerializeField]
         private List<T> _value;
 
         public List<T> Value
@@ -84,37 +106,53 @@ namespace Bitwise.Game
                 }
 
                 _value = value;
-                OnPropertyChanged?.Invoke(this);
+                onPropertyChanged?.Invoke(this);
             }
         }
 
         public GameDataListProperty()
         {
             Index = GameData.InvalidPropertyIndex;
+            Name = "UNNAMED";
             Value = new List<T>();
-            OnPropertyChanged = null;
+            onPropertyChanged = null;
         }
 
-        public GameDataListProperty(int index)
+        public GameDataListProperty(int index, string name)
         {
             Index = index;
+            Name = name;
             Value = new List<T>();
-            OnPropertyChanged = null;
+            onPropertyChanged = null;
+        }
+
+        public int Count => Value.Count;
+
+        public T GetElementAt(int index)
+        {
+            return Value[index];
         }
 
         public void AddElement(T element)
         {
             Value.Add(element);
-            OnPropertyChanged?.Invoke(this);
+            onPropertyChanged?.Invoke(this);
         }
 
-        public void RemoveElement(int index)
+        public bool RemoveElement(T element)
+        {
+            bool ret = Value.Remove(element);
+            if (ret) { onPropertyChanged?.Invoke(this); }
+            return ret;
+        }
+
+        public void RemoveElementAt(int index)
         {
             Value.RemoveAt(index);
-            OnPropertyChanged?.Invoke(this);
+            onPropertyChanged?.Invoke(this);
         }
 
-        public void ModifyElement(int index, T newValue)
+        public void ModifyElementAt(int index, T newValue)
         {
             T oldValue = Value[index];
             if ((oldValue == null && newValue == null) || (oldValue != null && oldValue.CompareTo(newValue) == 0))
@@ -123,17 +161,7 @@ namespace Bitwise.Game
             }
 
             Value[index] = newValue;
-            OnPropertyChanged?.Invoke(this);
-        }
-
-        public void ModifyLast(T newValue)
-        {
-            if (Value.Count == 0)
-            {
-                throw new InvalidOperationException();
-            }
-            Value[Value.Count - 1] = newValue;
-            OnPropertyChanged?.Invoke(this);
+            onPropertyChanged?.Invoke(this);
         }
     }
 }

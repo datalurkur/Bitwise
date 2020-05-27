@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Bitwise.Interface;
+using JetBrains.Annotations;
 using UnityEditor;
 using UnityEngine;
 
@@ -29,37 +30,51 @@ namespace Bitwise.Game
             }
         }
 
-        private GameState subState = null;
-        private GameState parent = null;
+        public GameState ActiveState
+        {
+            get => SubState?.ActiveState ?? this;
+        }
+
+        private GameState SubState
+        {
+            get => subStateStack.Count > 0 ? subStateStack.Last() : null;
+        }
+
+        public virtual List<string> SupportedCommands { get; } = new List<string>();
+
+        protected GameData gameData => GameManager.Instance.Data;
+        protected Processing processor => GameManager.Instance.Processor;
+
+        protected virtual List<int> SubscribedProperties { get; } = null;
+        protected virtual List<int> SubscribedJobs { get; } = null;
+        protected virtual List<int> SubscribedObjectives { get; } = null;
+
+        protected bool Done { get; set; } = false;
 
         private readonly List<DelayedEvent> delayedEvents = new List<DelayedEvent>();
 
-        public GameState ActiveState
-        {
-            get => subState?.ActiveState ?? this;
-        }
+        private List<GameState> subStateStack = new List<GameState>();
 
-        protected GameData gameData => GameManager.Instance.Data;
-
-        public GameState(GameState parentState = null)
-        {
-            parent = parentState;
-        }
+        public GameState() { }
 
         public virtual void Update(float deltaTime)
         {
-            subState?.Update(deltaTime);
+            if (SubState?.Done ?? false) { PopState(); }
+            SubState?.Update(deltaTime);
             delayedEvents.IterateAndRemove((delayedEvent) => delayedEvent.Update(deltaTime));
         }
 
-        public void ProcessUserIntent(UserIntent intent)
+        public virtual bool ProcessUserIntent(UserIntent intent)
         {
-            if (subState?.ProcessUserIntent_Internal(intent) ?? false) { return; }
-            if (ProcessUserIntent_Internal(intent)) { return; }
-            if (parent == null)
-            {
-                throw new NotImplementedException();
-            }
+            if (SubState?.ProcessUserIntent(intent) ?? false) { return true; }
+            return false;
+        }
+
+        public virtual bool GetSupportedCommands(ref List<string> supportedCommands)
+        {
+            if (SubState?.GetSupportedCommands(ref supportedCommands) ?? false) { return true; }
+            supportedCommands.AddRange(SupportedCommands);
+            return false;
         }
 
         protected void QueueDelayedEvent(Action evt, float delay)
@@ -67,59 +82,75 @@ namespace Bitwise.Game
             delayedEvents.Add(new DelayedEvent(evt, delay));
         }
 
-        protected void PushState(Type stateType)
+        protected void PushState(Type stateType, params object[] additionalArgs)
         {
-            if (subState != null) { throw new Exception("Substate exists"); }
-            PushState(Activator.CreateInstance(stateType, this) as GameState);
+            GameState nextState = Activator.CreateInstance(stateType, additionalArgs) as GameState;
+            PushState(nextState);
         }
 
         protected void PushState(GameState state)
         {
-            subState = state;
-            subState.OnPush();
+            subStateStack.Add(state);
+            state.OnPush();
         }
 
         protected void PopState()
         {
-            if (subState == null) { throw new Exception("Substate doesn't exist"); }
-            subState.OnPop();
-            subState = null;
+            if (subStateStack.Count == 0) { return; }
+            Type transitionTo = subStateStack.Last().OnPop();
+            subStateStack.RemoveAt(subStateStack.Count - 1);
+            if (transitionTo != null)
+            {
+                PushState(transitionTo);
+            }
         }
 
-        protected void Finish()
+        protected virtual void OnPush()
         {
-            if (parent == null) { throw new Exception("Root nodes cannot finish"); }
-            parent.OnChildFinished();
+            SubscribedProperties?.ForEach(property => gameData.ListenForChanges(property, OnPropertyChanged));
+            SubscribedJobs?.ForEach(job => gameData.GetJob(job).Complete.Subscribe(OnJobPropertyChanged));
+            SubscribedObjectives?.ForEach(objective => gameData.GetObjective(objective).Complete.Subscribe(OnObjectivePropertyChanged));
         }
 
-        protected virtual bool ProcessUserIntent_Internal(UserIntent intent) { return false; }
-
-        protected virtual void OnPush() {}
-
-        protected virtual void OnPop() {}
-
-        protected virtual void OnChildFinished()
+        protected virtual Type OnPop()
         {
-            PopState();
+            SubscribedProperties?.ForEach(property => gameData.StopListening(property, OnPropertyChanged));
+            SubscribedJobs?.ForEach(job => gameData.GetJob(job).Complete.Unsubscribe(OnJobPropertyChanged));
+            SubscribedObjectives?.ForEach(objective => gameData.GetObjective(objective).Complete.Unsubscribe(OnObjectivePropertyChanged));
+            return null;
         }
 
-        private void SetParent(GameState state)
+        #region Subscription Callbacks
+        protected virtual void OnPropertyChanged(GameDataProperty property) { }
+        protected virtual void OnJobChanged(Job job) { }
+        protected virtual void OnObjectiveChanged(Objective objective) { }
+
+        private void OnJobPropertyChanged(GameDataProperty property)
         {
-            parent = state;
+            OnJobChanged(gameData.GetJob(property.Index));
         }
+
+        private void OnObjectivePropertyChanged(GameDataProperty property)
+        {
+            OnObjectiveChanged(gameData.GetObjective(property.Index));
+        }
+        #endregion
     }
 
     public class ConfirmState : GameState
     {
-        public delegate void PromptConfirmed();
+        public delegate void PromptResult();
 
-        public delegate void PromptCanceled();
+        public override List<string> SupportedCommands { get; } = new List<string>()
+        {
+            "yes", "no"
+        };
 
         private string promptContent;
-        private PromptConfirmed onPromptConfirmed;
-        private PromptCanceled onPromptCanceled;
+        private PromptResult onPromptConfirmed;
+        private PromptResult onPromptCanceled;
 
-        public ConfirmState(GameState parent, string prompt, PromptConfirmed confirmedCallback, PromptCanceled canceledCallback) : base(parent)
+        public ConfirmState(string prompt, PromptResult confirmedCallback, PromptResult canceledCallback)
         {
             promptContent = prompt;
             onPromptConfirmed = confirmedCallback;
@@ -131,17 +162,17 @@ namespace Bitwise.Game
             gameData.VisualConsoleHistory.AddLine(promptContent);
         }
 
-        protected override bool ProcessUserIntent_Internal(UserIntent intent)
+        public override bool ProcessUserIntent(UserIntent intent)
         {
             switch (intent.Intent)
             {
                 case UserIntent.IntentType.Confirm:
                     onPromptConfirmed?.Invoke();
-                    Finish();
+                    Done = true;
                     break;
                 case UserIntent.IntentType.Cancel:
                     onPromptCanceled?.Invoke();
-                    Finish();
+                    Done = true;
                     break;
                 default:
                     gameData.VisualConsoleHistory.AddLine("Unable to parse response");

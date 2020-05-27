@@ -6,18 +6,22 @@ using UnityEngine;
 
 namespace Bitwise.Game
 {
+    [Serializable]
     public class TextBlock : IComparable<TextBlock>
     {
+        #region Factory Constructors
         public static TextBlock PlainText(string text) { return new TextBlock() { Content = text }; }
         public static TextBlock ColoredText(string text, Color? bgColor) { return new TextBlock()
         {
             Content = text,
             BackgroundColor = bgColor
         }; }
+        #endregion
 
         public string Content;
         public Color? BackgroundColor;
 
+        #region IComparable
         public int CompareTo(TextBlock other)
         {
             if (other == null) { return 1; }
@@ -28,8 +32,10 @@ namespace Bitwise.Game
             if (strCmp != 0) { return strCmp; }
             return (BackgroundColor == other.BackgroundColor) ? 0 : 1;
         }
+        #endregion
     }
 
+    [Serializable]
     public class ConsoleHistory
     {
         public delegate void EventComplete();
@@ -39,6 +45,7 @@ namespace Bitwise.Game
         public const float InstantaneousCharactersPerSecond = 1000000;
         public const int IndentationSize = 4;
 
+        [Serializable]
         public class ConsoleEvent
         {
             private EventComplete callback;
@@ -57,14 +64,20 @@ namespace Bitwise.Game
 
             private float textDuration
             {
-                get => (textContent?.Length ?? 0) / CharactersPerSecond;
+                get => (textContent?.Length ?? 0) * InterfaceManager.TimeDilator / CharactersPerSecond;
             }
 
+            [SerializeField]
             private string textContent;
+            [SerializeField]
             private readonly string textColor;
+            [SerializeField]
             private readonly Color? backgroundColor;
+            [SerializeField]
             private float progress;
+            [SerializeField]
             private bool firstRender = true;
+            [SerializeField]
             private string textBuffer;
 
             public ConsoleEvent(string content, bool newlineWhenFinished = true, float delayWhenFinished = 0f, float? cps = DefaultCharactersPerSecond, string tColor = null, Color? bColor = null, EventComplete onEventComplete = null)
@@ -89,7 +102,7 @@ namespace Bitwise.Game
 
             public float Progress(float deltaTime)
             {
-                int startIndex = Mathf.FloorToInt(progress * CharactersPerSecond);
+                int startIndex = Mathf.FloorToInt(progress * CharactersPerSecond / InterfaceManager.TimeDilator);
                 progress += deltaTime;
 
                 if (firstRender && textColor != null)
@@ -101,11 +114,11 @@ namespace Bitwise.Game
                 int endIndex = 0;
                 if (Text != null && startIndex < textContent.Length)
                 {
-                    endIndex = Math.Min(textContent.Length, Mathf.FloorToInt(progress * CharactersPerSecond));
+                    endIndex = Math.Min(textContent.Length, Mathf.FloorToInt(progress * CharactersPerSecond / InterfaceManager.TimeDilator));
                     textBuffer += textContent.Substring(startIndex, (endIndex - startIndex));
                 }
 
-                float leftoverProgress = progress - (textDuration + DelayWhenFinished);
+                float leftoverProgress = progress - (textDuration + DelayWhenFinished * InterfaceManager.TimeDilator);
                 if (leftoverProgress >= 0f)
                 {
                     if (textColor != null)
@@ -122,10 +135,12 @@ namespace Bitwise.Game
         public List<List<TextBlock>> CompletedLines { get; } = new List<List<TextBlock>>();
         public readonly GameDataProperty<TextBlock> ActiveTextBlock = new GameDataProperty<TextBlock>(new TextBlock());
 
+        [SerializeField]
         private readonly Queue<ConsoleEvent> textQueue = new Queue<ConsoleEvent>();
 
         private readonly HashSet<object> indentationContexts = new HashSet<object>();
         private string indentation = "";
+        [SerializeField]
         private bool wasLastEventNewline = true;
 
         #region Convenience Functions

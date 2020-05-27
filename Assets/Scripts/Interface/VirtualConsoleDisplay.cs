@@ -75,13 +75,13 @@ namespace Bitwise.Interface
         {
             UserInputField.SetContent(FormatUserInputStringWithCompletion("", ""));
             History.OnTextBlockCompleted += BeginNewTextBlock;
-            History.ActiveTextBlock.OnPropertyChanged += OnActiveLineChanged;
+            History.ActiveTextBlock.Subscribe(OnActiveLineChanged);
         }
 
         protected void OnDestroy()
         {
             History.OnTextBlockCompleted -= BeginNewTextBlock;
-            History.ActiveTextBlock.OnPropertyChanged -= OnActiveLineChanged;
+            History.ActiveTextBlock.Unsubscribe(OnActiveLineChanged);
         }
 
         protected void Update()
@@ -142,6 +142,7 @@ namespace Bitwise.Interface
                 VirtualConsoleComplexLine line = textContainers[0];
                 textContainers.RemoveAt(0);
                 textContainers.Add(line);
+                line.SetContent(null);
                 line.UITransform.SetAsLastSibling();
                 activeTextBlocks.Clear();
             }
